@@ -13,6 +13,98 @@ var osc = osc || {};
 
     "use strict";
 
+    osc.scsynth_cmds = {
+
+    0: "/none",
+
+    1: "/notify",
+    2: "/status",
+    3: "/quit",
+    4: "/cmd",
+
+    5: "/d_recv",
+    6: "/d_load",
+    7: "/d_loadDir",
+    8: "/d_freeAll",
+
+    9: "/s_new",
+
+    10: "/n_trace",
+    11: "/n_free",
+    12: "/n_run",
+    13: "/n_cmd",
+    14: "/n_map",
+    15: "/n_set",
+    16: "/n_setn",
+    17: "/n_fill",
+    18: "/n_before",
+    19: "/n_after",
+
+    20: "/u_cmd",
+
+    21: "/g_new",
+    22: "/g_head",
+    23: "/g_tail",
+    24: "/g_freeAll",
+
+    25: "/c_set",
+    26: "/c_setn",
+    27: "/c_fill",
+
+    28: "/b_alloc",
+    29: "/b_allocRead",
+    30: "/b_read",
+    31: "/b_write",
+    32: "/b_free",
+    33: "/b_close",
+    34: "/b_zero",
+    35: "/b_set",
+    36: "/b_setn",
+    37: "/b_fill",
+    38: "/b_gen",
+
+    39: "/dumpOSC",
+
+    40: "/c_get",
+    41: "/c_getn",
+    42: "/b_get",
+    43: "/b_getn",
+    44: "/s_get",
+    45: "/s_getn",
+
+    46: "/n_query",
+    47: "/b_query",
+
+    48: "/n_mapn",
+    49: "/s_noid",
+
+    50: "/g_deepFree",
+    51: "/clearSched",
+
+    52: "/sync",
+
+    53: "/d_free",
+
+    54: "/b_allocReadChannel",
+    55: "/b_readChannel",
+
+    56: "/g_dumpTree",
+    57: "/g_queryTree",
+
+
+    58: "/error",
+
+    59: "/s_newargs",
+
+    60: "/n_mapa",
+    61: "/n_mapan",
+    62: "/n_order",
+
+    63: "/p_new",
+
+    64: "/version",
+    }
+
     osc.SECS_70YRS = 2208988800;
     osc.TWO_32 = 4294967296;
 
@@ -272,6 +364,10 @@ var osc = osc || {};
         return osc.readPrimitive(dv, "getInt32", 4, offsetState);
     };
 
+    osc.readArgInt32 = function (dv, offsetState) {
+        return {type: "int", payload: osc.readPrimitive(dv, "getInt32", 4, offsetState)};
+    };
+
     /**
      * Writes an OSC int32 ("i") value.
      *
@@ -281,6 +377,15 @@ var osc = osc || {};
      */
     osc.writeInt32 = function (val, dv, offset) {
         return osc.writePrimitive(val, dv, "setInt32", 4, offset);
+    };
+
+    osc.writeArgInt32 = function (val, dv, offset) {
+        if (typeof val == "number") {
+            return osc.writePrimitive(val, dv, "setInt32", 4, offset);
+        } else {
+            var intVal = val.payload;
+            return osc.writePrimitive(intVal, dv, "setInt32", 4, offset);
+        }
     };
 
     /**
@@ -636,7 +741,9 @@ var osc = osc || {};
      * @return {Array} an array of the OSC arguments that were read
      */
     osc.readArguments = function (dv, options, offsetState) {
+
         var typeTagString = osc.readString(dv, offsetState);
+
         if (typeTagString.indexOf(",") !== 0) {
             // Despite what the OSC 1.0 spec says,
             // it just doesn't make sense to handle messages without type tags.
@@ -814,12 +921,27 @@ var osc = osc || {};
             idx: 0
         };
 
+        var offsetIdx = offsetState.idx;
+
         var address = osc.readString(dv, offsetState);
+
+        if(address.length == 0) {
+            offsetState.idx = offsetIdx;
+            var intHeader = osc.readInt32(dv, offsetState);
+            var addressReplacement = osc.scsynth_cmds[intHeader];
+            if(addressReplacement === undefined) {
+                address = "";
+            } else {
+                address = addressReplacement;
+            }
+        }
+
         return osc.readMessageContents(address, dv, options, offsetState);
     };
 
     // Unsupported, non-API function.
     osc.readMessageContents = function (address, dv, options, offsetState) {
+
         if (address.indexOf("/") !== 0) {
             throw new Error("A malformed OSC address was found while reading " +
                 "an OSC message. String was: " + address);
@@ -959,8 +1081,21 @@ var osc = osc || {};
             idx: 0
         };
 
-        var header = osc.readString(dv, offsetState),
-            firstChar = header[0];
+        var offsetIdx = offsetState.idx;
+        var header = osc.readString(dv, offsetState);
+
+        if(header.length == 0) {
+            offsetState.idx = offsetIdx;
+            var intHeader = osc.readInt32(dv, offsetState);
+            var headerReplacement = osc.scsynth_cmds[intHeader];
+            if(headerReplacement === undefined) {
+                header = "";
+            } else {
+                header = headerReplacement;
+            }
+        }
+
+        var firstChar = header[0];
 
         if (firstChar === "#") {
             return osc.readBundleContents(dv, options, offsetState, len);
@@ -993,8 +1128,8 @@ var osc = osc || {};
     // Unsupported, non-API.
     osc.argumentTypes = {
         i: {
-            reader: "readInt32",
-            writer: "writeInt32"
+            reader: "readArgInt32",
+            writer: "writeArgInt32"
         },
         h: {
             reader: "readInt64",
@@ -1068,6 +1203,8 @@ var osc = osc || {};
             case "object":
                 if (arg === null) {
                     return "N";
+                } else if(arg.type == "int") {
+                    return "i";
                 } else if (arg instanceof Uint8Array ||
                     arg instanceof ArrayBuffer) {
                     return "b";
